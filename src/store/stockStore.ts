@@ -1,5 +1,13 @@
 import { create } from 'zustand';
 import type { Stock, StockFilterCriteria, Strategy } from '../types/stock';
+import {
+  fetchStockList,
+  fetchStockDetail,
+  fetchStockKLine,
+  filterStocks as applyCriteria,
+  DEFAULT_STRATEGIES,
+} from '../api/stockService';
+import type { KLineData } from '../types/stock';
 
 interface StockState {
   stocks: Stock[];
@@ -9,8 +17,16 @@ interface StockState {
   sortOrder: 'asc' | 'desc';
   showFilter: boolean;
   strategies: Strategy[];
-  
-  setStocks: (stocks: Stock[]) => void;
+  loading: boolean;
+  error: string | null;
+  provider: string;
+  lastUpdate: number | null;
+  selectedStock: Stock | null;
+  selectedKLine: KLineData[];
+
+  refreshStocks: (limit?: number) => Promise<void>;
+  loadStockDetail: (code: string, name: string) => Promise<void>;
+  loadKLine: (code: string, days?: number) => Promise<void>;
   toggleFavorite: (code: string) => void;
   isFavorite: (code: string) => boolean;
   setFilterCriteria: (criteria: Partial<StockFilterCriteria>) => void;
@@ -21,70 +37,20 @@ interface StockState {
   applyStrategy: (strategy: Strategy) => void;
   getFilteredStocks: () => Stock[];
   getSortedStocks: () => Stock[];
+  clearSelectedStock: () => void;
 }
 
 const defaultFilterCriteria: StockFilterCriteria = {
   rsiRange: [0, 100],
   macdSignal: 'neutral',
   volumeRatioMin: 0,
-  mainNetFlowMin: 0,
+  mainNetFlowMin: -10000000,
   consecutiveDaysMin: 0,
   marketCapRange: [0, Infinity],
   peRange: [0, Infinity],
   priceRange: [0, Infinity],
   changePercentRange: [-100, 100],
 };
-
-const defaultStrategies: Strategy[] = [
-  {
-    id: 'conservative',
-    name: '稳健型',
-    type: 'conservative',
-    criteria: {
-      rsiRange: [30, 70],
-      macdSignal: 'neutral',
-      volumeRatioMin: 0.5,
-      mainNetFlowMin: 100000000,
-      consecutiveDaysMin: 3,
-      marketCapRange: [100000000000, Infinity],
-      peRange: [0, 30],
-      priceRange: [0, Infinity],
-      changePercentRange: [-5, 5],
-    },
-  },
-  {
-    id: 'aggressive',
-    name: '激进型',
-    type: 'aggressive',
-    criteria: {
-      rsiRange: [0, 100],
-      macdSignal: 'neutral',
-      volumeRatioMin: 1.5,
-      mainNetFlowMin: 0,
-      consecutiveDaysMin: 1,
-      marketCapRange: [0, Infinity],
-      peRange: [0, Infinity],
-      priceRange: [0, Infinity],
-      changePercentRange: [-100, 100],
-    },
-  },
-  {
-    id: 'value',
-    name: '价值型',
-    type: 'value',
-    criteria: {
-      rsiRange: [0, 60],
-      macdSignal: 'neutral',
-      volumeRatioMin: 0,
-      mainNetFlowMin: 500000000,
-      consecutiveDaysMin: 5,
-      marketCapRange: [500000000000, Infinity],
-      peRange: [0, 15],
-      priceRange: [0, Infinity],
-      changePercentRange: [-10, 10],
-    },
-  },
-];
 
 export const useStockStore = create<StockState>((set, get) => ({
   stocks: [],
@@ -93,9 +59,85 @@ export const useStockStore = create<StockState>((set, get) => ({
   sortBy: 'changePercent',
   sortOrder: 'desc',
   showFilter: false,
-  strategies: defaultStrategies,
+  strategies: DEFAULT_STRATEGIES,
+  loading: false,
+  error: null,
+  provider: '',
+  lastUpdate: null,
+  selectedStock: null,
+  selectedKLine: [],
 
-  setStocks: (stocks) => set({ stocks }),
+  refreshStocks: async (limit = 40) => {
+    set({ loading: true, error: null });
+    try {
+      const result = await fetchStockList(limit);
+      if (result.stocks.length === 0) {
+        set({
+          loading: false,
+          error: result.errors.length > 0
+            ? `数据源错误: ${result.errors.join('; ')}`
+            : '未能获取到股票数据，请检查网络或稍后重试',
+          provider: result.provider,
+        });
+        return;
+      }
+      set({
+        stocks: result.stocks,
+        loading: false,
+        provider: result.provider,
+        lastUpdate: Date.now(),
+      });
+    } catch (err) {
+      set({
+        loading: false,
+        error: err instanceof Error ? err.message : '请求失败',
+      });
+    }
+  },
+
+  loadStockDetail: async (code: string, name: string) => {
+    set({ loading: true, error: null });
+    try {
+      const result = await fetchStockDetail(code, name);
+      if (!result.success) {
+        set({
+          loading: false,
+          error: `${result.error.provider}: ${result.error.message}`,
+        });
+        return;
+      }
+      set({ selectedStock: result.data, loading: false });
+    } catch (err) {
+      set({
+        loading: false,
+        error: err instanceof Error ? err.message : '请求失败',
+      });
+    }
+  },
+
+  loadKLine: async (code: string, days = 60) => {
+    set({ loading: true });
+    try {
+      const result = await fetchStockKLine(code, days);
+      if (!result.success) {
+        set({
+          loading: false,
+          error: `${result.error.provider}: ${result.error.message}`,
+          selectedKLine: [],
+        });
+        return;
+      }
+      set({ selectedKLine: result.data, loading: false });
+    } catch (err) {
+      set({
+        loading: false,
+        error: err instanceof Error ? err.message : '请求失败',
+        selectedKLine: [],
+      });
+    }
+  },
+
+  clearSelectedStock: () => set({ selectedStock: null, selectedKLine: [] }),
 
   toggleFavorite: (code) =>
     set((state) => {
@@ -128,37 +170,17 @@ export const useStockStore = create<StockState>((set, get) => ({
 
   getFilteredStocks: () => {
     const { stocks, filterCriteria } = get();
-    return stocks.filter((stock) => {
-      if (stock.rsi < filterCriteria.rsiRange[0] || stock.rsi > filterCriteria.rsiRange[1]) {
-        return false;
-      }
-      if (stock.volumeRatio < filterCriteria.volumeRatioMin) {
-        return false;
-      }
-      if (stock.mainNetFlow < filterCriteria.mainNetFlowMin) {
-        return false;
-      }
-      if (stock.marketCap < filterCriteria.marketCapRange[0] || stock.marketCap > filterCriteria.marketCapRange[1]) {
-        return false;
-      }
-      if (stock.pe < filterCriteria.peRange[0] || stock.pe > filterCriteria.peRange[1]) {
-        return false;
-      }
-      if (stock.changePercent < filterCriteria.changePercentRange[0] || stock.changePercent > filterCriteria.changePercentRange[1]) {
-        return false;
-      }
-      return true;
-    });
+    return applyCriteria(stocks, filterCriteria);
   },
 
   getSortedStocks: () => {
     const filteredStocks = get().getFilteredStocks();
     const { sortBy, sortOrder } = get();
-    
+
     return [...filteredStocks].sort((a, b) => {
       const aValue = a[sortBy];
       const bValue = b[sortBy];
-      
+
       if (sortOrder === 'asc') {
         return aValue - bValue;
       }

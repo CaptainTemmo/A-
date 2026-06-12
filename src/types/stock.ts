@@ -3,6 +3,7 @@ export interface Stock {
   name: string;
   price: number;
   changePercent: number;
+  changeAmount: number;
   volume: number;
   turnover: number;
   turnoverRate: number;
@@ -17,6 +18,7 @@ export interface Stock {
   fiveDayNetFlow: number;
   tenDayNetFlow: number;
   selectionReasons: string[];
+  lastUpdate: number;
 }
 
 export interface StockFilterCriteria {
@@ -47,4 +49,49 @@ export interface Strategy {
   name: string;
   type: 'conservative' | 'aggressive' | 'value';
   criteria: StockFilterCriteria;
+}
+
+export interface KLineData {
+  date: string;
+  open: number;
+  close: number;
+  high: number;
+  low: number;
+  volume: number;
+}
+
+export interface FundFlowData {
+  date: string;
+  mainFlow: number;
+  fiveDayFlow: number;
+  tenDayFlow: number;
+}
+
+export interface ApiError {
+  code: string;
+  message: string;
+  provider: string;
+  raw?: unknown;
+}
+
+export type ApiResult<T> =
+  | { success: true; data: T; provider: string }
+  | { success: false; error: ApiError };
+
+export interface StockQuote {
+  code: string;
+  name: string;
+  price: number;
+  open: number;
+  preClose: number;
+  high: number;
+  low: number;
+  volume: number;
+  turnover: number;
+  turnoverRate: number;
+  volumeRatio: number;
+  marketCap: number;
+  pe: number;
+  changePercent: number;
+  changeAmount: number;
 }

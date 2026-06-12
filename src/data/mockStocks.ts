@@ -52,6 +52,7 @@ export function generateMockStocks(): Stock[] {
       name,
       price: Math.round(price * 100) / 100,
       changePercent: Math.round(changePercent * 100) / 100,
+      changeAmount: Math.round(price * changePercent / 100 * 100) / 100,
       volume,
       turnover,
       turnoverRate: Math.round(randomInRange(0.5, 15) * 100) / 100,
@@ -77,7 +78,8 @@ export function generateMockStocks(): Stock[] {
       mainNetFlow: Math.round(randomInRange(-500, 2000) * 10000) / 10000,
       fiveDayNetFlow: Math.round(randomInRange(-1000, 3000) * 10000) / 10000,
       tenDayNetFlow: Math.round(randomInRange(-2000, 5000) * 10000) / 10000,
-      selectionReasons
+      selectionReasons,
+      lastUpdate: Date.now()
     };
   });
 }
