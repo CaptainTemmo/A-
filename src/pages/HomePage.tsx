@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import { Coins, TrendingUp, Activity, BarChart3 } from 'lucide-react';
 import { useStockStore } from '../store/stockStore';
 import { generateMockStocks } from '../data/mockStocks';
@@ -6,7 +6,8 @@ import { StatCard } from '../components/common/StatCard';
 import { StockList } from '../components/stock/StockList';
 
 export function HomePage() {
-  const { stocks, setStocks } = useStockStore();
+  const stocks = useStockStore((state) => state.stocks);
+  const setStocks = useStockStore((state) => state.setStocks);
 
   useEffect(() => {
     if (stocks.length === 0) {
@@ -16,19 +17,17 @@ export function HomePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const stats = useStockStore((state) => {
-    const allStocks = state.stocks;
-    const totalStocks = allStocks.length;
-    const avgChange = allStocks.length > 0
-      ? allStocks.reduce((sum, s) => sum + s.changePercent, 0) / totalStocks
+  const stats = useMemo(() => {
+    const totalStocks = stocks.length;
+    const avgChange = totalStocks > 0
+      ? stocks.reduce((sum, s) => sum + s.changePercent, 0) / totalStocks
       : 0;
-    const totalNetFlow = allStocks.reduce((sum, s) => sum + s.mainNetFlow, 0);
-    const avgTurnover = allStocks.length > 0
-      ? allStocks.reduce((sum, s) => sum + s.turnoverRate, 0) / totalStocks
+    const totalNetFlow = stocks.reduce((sum, s) => sum + s.mainNetFlow, 0);
+    const avgTurnover = totalStocks > 0
+      ? stocks.reduce((sum, s) => sum + s.turnoverRate, 0) / totalStocks
       : 0;
-
     return { totalStocks, avgChange, totalNetFlow, avgTurnover };
-  });
+  }, [stocks]);
 
   const formatCurrency = (value: number): string => {
     const absValue = Math.abs(value);
