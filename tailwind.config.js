@@ -14,6 +14,7 @@ export default {
           light: "#111D2E",
           card: "#1A2744",
         },
+        secondary: "#1E3A5F",
         accent: {
           DEFAULT: "#00D4FF",
           glow: "rgba(0, 212, 255, 0.3)",
