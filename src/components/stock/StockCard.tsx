@@ -20,8 +20,9 @@ const formatCurrency = (num: number): string => {
 };
 
 export const StockCard: React.FC<StockCardProps> = ({ stock }) => {
-  const { toggleFavorite, isFavorite } = useStockStore();
-  const favorite = isFavorite(stock.code);
+  const toggleFavorite = useStockStore((s) => s.toggleFavorite);
+  const favorites = useStockStore((s) => s.favorites);
+  const favorite = favorites.has(stock.code);
 
   const handleFavoriteClick = (e: React.MouseEvent) => {
     e.preventDefault();

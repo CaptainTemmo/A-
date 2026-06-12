@@ -11,10 +11,12 @@ import { Button } from '../components/ui/Button';
 export function StockDetailPage() {
   const { code } = useParams<{ code: string }>();
   const navigate = useNavigate();
-  const { stocks, toggleFavorite, isFavorite } = useStockStore();
+  const stocks = useStockStore((s) => s.stocks);
+  const toggleFavorite = useStockStore((s) => s.toggleFavorite);
+  const favorites = useStockStore((s) => s.favorites);
 
   const stock = stocks.find((s) => s.code === code);
-  const favorite = stock ? isFavorite(stock.code) : false;
+  const favorite = stock ? favorites.has(stock.code) : false;
 
   if (!stock) {
     return (

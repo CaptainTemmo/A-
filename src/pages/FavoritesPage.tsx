@@ -4,7 +4,9 @@ import { useStockStore } from '../store/stockStore';
 import { Badge, getChangePercentVariant, formatPercent } from '../components/common/Badge';
 
 export function FavoritesPage() {
-  const { stocks, favorites, toggleFavorite } = useStockStore();
+  const stocks = useStockStore((s) => s.stocks);
+  const favorites = useStockStore((s) => s.favorites);
+  const toggleFavorite = useStockStore((s) => s.toggleFavorite);
 
   const favoriteStocks = stocks.filter((stock) => favorites.has(stock.code));
 

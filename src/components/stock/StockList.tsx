@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { ArrowUpDown, Filter } from 'lucide-react';
 import { useStockStore } from '../../store/stockStore';
 import { StockCard } from './StockCard';
@@ -15,17 +15,22 @@ const sortLabels: Record<SortField, string> = {
 };
 
 export const StockList: React.FC = () => {
-  const {
-    sortBy,
-    sortOrder,
-    setSortBy,
-    setSortOrder,
-    showFilter,
-    toggleFilter,
-    getSortedStocks,
-  } = useStockStore();
+  const sortBy = useStockStore((s) => s.sortBy);
+  const sortOrder = useStockStore((s) => s.sortOrder);
+  const setSortBy = useStockStore((s) => s.setSortBy);
+  const setSortOrder = useStockStore((s) => s.setSortOrder);
+  const showFilter = useStockStore((s) => s.showFilter);
+  const toggleFilter = useStockStore((s) => s.toggleFilter);
+  const stocks = useStockStore((s) => s.stocks);
 
-  const stocks = getSortedStocks();
+  const sortedStocks = useMemo(() => {
+    return [...stocks].sort((a, b) => {
+      const aValue = a[sortBy];
+      const bValue = b[sortBy];
+      if (sortOrder === 'asc') return aValue - bValue;
+      return bValue - aValue;
+    });
+  }, [stocks, sortBy, sortOrder]);
 
   const handleSortClick = (field: SortField) => {
     if (sortBy === field) {
@@ -81,12 +86,12 @@ export const StockList: React.FC = () => {
       {showFilter && <StockFilter />}
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-        {stocks.map((stock) => (
+        {sortedStocks.map((stock) => (
           <StockCard key={stock.code} stock={stock} />
         ))}
       </div>
 
-      {stocks.length === 0 && (
+      {sortedStocks.length === 0 && (
         <div className="text-center py-12 text-gray-500">
           暂无符合条件的股票
         </div>

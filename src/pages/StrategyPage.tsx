@@ -17,7 +17,11 @@ const strategyColors = {
 };
 
 export function StrategyPage() {
-  const { strategies, filterCriteria, setFilterCriteria, applyStrategy, resetFilter } = useStockStore();
+  const strategies = useStockStore((s) => s.strategies);
+  const filterCriteria = useStockStore((s) => s.filterCriteria);
+  const setFilterCriteria = useStockStore((s) => s.setFilterCriteria);
+  const applyStrategy = useStockStore((s) => s.applyStrategy);
+  const resetFilter = useStockStore((s) => s.resetFilter);
   const [selectedStrategy, setSelectedStrategy] = useState<string | null>(null);
 
   const handleStrategySelect = (strategy: Strategy) => {

@@ -3,13 +3,11 @@ import { useStockStore } from '../../store/stockStore';
 import type { StockFilterCriteria } from '../../types/stock';
 
 export const StockFilter: React.FC = () => {
-  const {
-    filterCriteria,
-    setFilterCriteria,
-    resetFilter,
-    strategies,
-    applyStrategy,
-  } = useStockStore();
+  const filterCriteria = useStockStore((s) => s.filterCriteria);
+  const setFilterCriteria = useStockStore((s) => s.setFilterCriteria);
+  const resetFilter = useStockStore((s) => s.resetFilter);
+  const strategies = useStockStore((s) => s.strategies);
+  const applyStrategy = useStockStore((s) => s.applyStrategy);
 
   const [localCriteria, setLocalCriteria] = useState<StockFilterCriteria>(filterCriteria);
 
