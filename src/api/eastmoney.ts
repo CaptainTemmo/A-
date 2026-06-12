@@ -1,5 +1,6 @@
 import { jsonp } from './jsonp';
-import type { ApiResult, KLineData, Stock } from '../types/stock';
+import type { ApiResult, KLineData, Stock, BoardCategory } from '../types/stock';
+import { detectBoardByCode } from '../types/stock';
 
 export const EASTMONEY_NAME = '东方财富';
 
@@ -101,10 +102,171 @@ interface DiffQuoteItem {
   f171?: number;
 }
 
-function safeNum(v: number | undefined, fallback = 0): number {
-  if (v === undefined || v === null || Number.isNaN(v)) return fallback;
-  if (v === '-' as unknown) return fallback;
+function safeNum(v: number | undefined | string, fallback = 0): number {
+  if (v === undefined || v === null) return fallback;
+  if (typeof v === 'string') {
+    if (v === '-' || v === '') return fallback;
+    const n = parseFloat(v);
+    return Number.isNaN(n) ? fallback : n;
+  }
+  if (Number.isNaN(v)) return fallback;
   return v;
+}
+
+/**
+ * 使用 clist/get 按板块筛选获取全市场候选股票。
+ * fs 参数用来指定板块:
+ * - m:0+t:6 深市主板
+ * - m:0+t:80 创业板
+ * - m:1+t:2 沪市主板
+ * - m:1+t:23 科创板
+ * - m:0+t:81 北交所
+ */
+interface ClistResponse {
+  data?: {
+    total?: number;
+    diff?: Array<Record<string, unknown>> | null;
+  } | null;
+}
+
+async function fetchClist(
+  fs: string,
+  pageSize: number = 60
+): Promise<Array<Record<string, unknown>>> {
+  const fields =
+    'f2,f3,f4,f5,f6,f8,f10,f12,f14,f15,f16,f17,f18,f20,f21,f115,f128,f140,f141,f162,f167,f168,f171';
+  const url = `https://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=${pageSize}&po=1&np=1&ut=bd1d9ddb04089700cf9c27f6f7426281&fltt=2&invt=2&fid=f3&fs=${encodeURIComponent(fs)}&fields=${encodeURIComponent(fields)}`;
+
+  const resp = await jsonp<ClistResponse>(url, {
+    callbackParam: 'cb',
+    timeout: 20000,
+  });
+
+  if (!resp || !resp.data || !resp.data.diff || !Array.isArray(resp.data.diff)) {
+    return [];
+  }
+  return resp.data.diff;
+}
+
+function buildStockFromClist(
+  q: Record<string, unknown>,
+  forcedBoard?: BoardCategory
+): Stock | null {
+  const code = typeof q.f12 === 'string' ? q.f12 : String(q.f12 ?? '');
+  const name = typeof q.f14 === 'string' ? q.f14 : String(q.f14 ?? '');
+  if (!code) return null;
+
+  const price = safeNum(q.f2 as number | undefined);
+  const preClose = safeNum(q.f18 as number | undefined);
+  if (price <= 0 && preClose <= 0) return null;
+
+  const changePercent = safeNum(q.f3 as number | undefined);
+  const changeAmount = safeNum(q.f4 as number | undefined);
+  const volume = safeNum(q.f5 as number | undefined);
+  const turnover = safeNum(q.f6 as number | undefined);
+  const turnoverRate = safeNum(q.f8 as number | undefined);
+  const volumeRatio = safeNum(q.f10 as number | undefined, 1);
+  const marketCap = safeNum(q.f20 as number | undefined);
+  const pe = safeNum(q.f9 as number | undefined);
+
+  // 过滤掉价格异常/停牌/一字涨停：过于极端的数据不适合作为"下一交易日推荐"
+  if (price <= 0) return null;
+  if (changePercent >= 9.9 || changePercent <= -9.9) return null; // 过滤涨跌停
+
+  const board = forcedBoard ?? detectBoardByCode(code);
+
+  // 综合评分: 动量(changePercent) * 2 + 量比(volumeRatio) * 1.5 + 换手率(turnoverRate) * 0.5
+  // 减去极端涨幅惩罚，避免选择已经涨停或短期过热的股票
+  let penalty = 0;
+  if (changePercent > 7) penalty = (changePercent - 7) * 1.5;
+  if (changePercent < -3) penalty = Math.abs(changePercent + 3) * 2;
+
+  const score = changePercent * 2 + volumeRatio * 1.5 + turnoverRate * 0.5 - penalty;
+
+  const reasons: string[] = [];
+  if (changePercent > 3) reasons.push('涨幅较大');
+  if (changePercent > 0) reasons.push('上涨');
+  if (changePercent < 0) reasons.push('下跌');
+  if (volumeRatio > 2) reasons.push('量比放大');
+  if (turnoverRate > 5) reasons.push('换手活跃');
+
+  // 主力净流入估算 (涨跌额 * 成交量 / 10000)，单位约为万元
+  const mainNetFlow = (changeAmount * volume) / 10000;
+
+  return {
+    code,
+    name,
+    price,
+    changePercent,
+    changeAmount,
+    volume,
+    turnover,
+    turnoverRate,
+    volumeRatio,
+    marketCap,
+    pe,
+    rsi: 50,
+    macd: { dif: 0, dea: 0, histogram: 0 },
+    kdj: { k: 50, d: 50, j: 50 },
+    boll: { upper: price * 1.03, middle: price, lower: price * 0.97 },
+    mainNetFlow,
+    fiveDayNetFlow: 0,
+    tenDayNetFlow: 0,
+    selectionReasons: reasons,
+    lastUpdate: Date.now(),
+    board,
+    score,
+  };
+}
+
+/**
+ * 从指定板块获取候选股票，经综合评分排序后返回前 N 只。
+ */
+export async function fetchBoardCandidates(
+  fs: string,
+  forcedBoard?: BoardCategory,
+  pageSize: number = 80
+): Promise<Stock[]> {
+  try {
+    const rawList = await fetchClist(fs, pageSize);
+    const stocks: Stock[] = [];
+    for (const q of rawList) {
+      const s = buildStockFromClist(q, forcedBoard);
+      if (s) stocks.push(s);
+    }
+
+    // 按综合评分降序排序
+    stocks.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+    return stocks;
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * 并发获取 3 个板块的推荐候选。
+ */
+export async function fetchAllBoardCandidates(): Promise<{
+  mainAndChiNext: Stock[];
+  star: Stock[];
+  bse: Stock[];
+}> {
+  const [mainCandidates, chinextCandidates, starCandidates, bseCandidates] = await Promise.all([
+    fetchBoardCandidates('m:0+t:6,m:1+t:2', 'main', 80), // 深市主板 + 沪市主板
+    fetchBoardCandidates('m:0+t:80', 'chinext', 80), // 创业板
+    fetchBoardCandidates('m:1+t:23', 'star', 80), // 科创板
+    fetchBoardCandidates('m:0+t:81', 'bse', 80), // 北交所
+  ]);
+
+  // 合并主板和创业板为"其他板块"
+  const mainAndChiNext = [...mainCandidates, ...chinextCandidates]
+    .sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+
+  return {
+    mainAndChiNext,
+    star: starCandidates,
+    bse: bseCandidates,
+  };
 }
 
 export async function fetchBatchQuotes(
@@ -170,22 +332,15 @@ export async function fetchBatchQuotes(
       const marketCap = safeNum(quote.f116);
       const pe = safeNum(quote.f167);
 
-      let rsi = 50;
-      let macd = { dif: 0, dea: 0, histogram: 0 };
-      let kdj = { k: 50, d: 50, j: 50 };
-      let boll = { upper: price * 1.03, middle: price, lower: price * 0.97 };
-      let mainNetFlow = 0;
-      let fiveDayNetFlow = 0;
-      let tenDayNetFlow = 0;
       const reasons: string[] = [];
-
       if (changePercent > 3) reasons.push('涨幅较大');
       if (changePercent < -3) reasons.push('跌幅较大');
       if (volumeRatio > 2) reasons.push('量比放大');
       if (changePercent > 0) reasons.push('上涨');
       if (changePercent < 0) reasons.push('下跌');
 
-      mainNetFlow = (changeAmount * volume) / 10000;
+      const mainNetFlow = (changeAmount * volume) / 10000;
+      const board = detectBoardByCode(meta.code);
 
       stocks.push({
         code: meta.code,
@@ -199,15 +354,16 @@ export async function fetchBatchQuotes(
         volumeRatio,
         marketCap,
         pe,
-        rsi,
-        macd,
-        kdj,
-        boll,
+        rsi: 50,
+        macd: { dif: 0, dea: 0, histogram: 0 },
+        kdj: { k: 50, d: 50, j: 50 },
+        boll: { upper: price * 1.03, middle: price, lower: price * 0.97 },
         mainNetFlow,
-        fiveDayNetFlow,
-        tenDayNetFlow,
+        fiveDayNetFlow: 0,
+        tenDayNetFlow: 0,
         selectionReasons: reasons,
         lastUpdate: Date.now(),
+        board,
       });
     }
 

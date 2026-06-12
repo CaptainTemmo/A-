@@ -1,3 +1,23 @@
+export type BoardCategory =
+  | 'main' // 主板 (沪市主板 + 深市主板)
+  | 'chinext' // 创业板 (300xxx)
+  | 'star' // 科创板 (688xxx)
+  | 'bse'; // 北交所 (83xxx, 87xxx, 88xxx, 92xxx)
+
+export const BOARD_LABELS: Record<BoardCategory, string> = {
+  main: '主板',
+  chinext: '创业板',
+  star: '科创板',
+  bse: '北交所',
+};
+
+export const BOARD_DESCRIPTIONS: Record<BoardCategory, string> = {
+  main: '沪市主板 + 深市主板',
+  chinext: '创业板 300xxx',
+  star: '科创板 688xxx',
+  bse: '北交所 83/87/88/92xxx',
+};
+
 export interface Stock {
   code: string;
   name: string;
@@ -19,6 +39,8 @@ export interface Stock {
   tenDayNetFlow: number;
   selectionReasons: string[];
   lastUpdate: number;
+  board?: BoardCategory;
+  score?: number;
 }
 
 export interface StockFilterCriteria {
@@ -94,4 +116,22 @@ export interface StockQuote {
   pe: number;
   changePercent: number;
   changeAmount: number;
+}
+
+export interface BoardRecommendations {
+  mainAndChiNext: Stock[]; // 主板+创业板 10只
+  star: Stock[]; // 科创板 10只
+  bse: Stock[]; // 北交所 10只
+  nextTradingDay: string;
+  provider: string;
+  lastUpdate: number;
+}
+
+export function detectBoardByCode(code: string): BoardCategory {
+  if (code.startsWith('688')) return 'star';
+  if (code.startsWith('83') || code.startsWith('87') || code.startsWith('88') || code.startsWith('92')) {
+    return 'bse';
+  }
+  if (code.startsWith('300') || code.startsWith('301')) return 'chinext';
+  return 'main';
 }

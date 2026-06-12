@@ -1,11 +1,12 @@
 import { create } from 'zustand';
-import type { Stock, StockFilterCriteria, Strategy } from '../types/stock';
+import type { Stock, StockFilterCriteria, Strategy, BoardRecommendations } from '../types/stock';
 import {
   fetchStockList,
   fetchStockDetail,
   fetchStockKLine,
   filterStocks as applyCriteria,
   DEFAULT_STRATEGIES,
+  fetchBoardRecommendations,
 } from '../api/stockService';
 import type { KLineData } from '../types/stock';
 
@@ -24,9 +25,14 @@ interface StockState {
   selectedStock: Stock | null;
   selectedKLine: KLineData[];
 
+  recommendations: BoardRecommendations | null;
+  recommendationsLoading: boolean;
+  recommendationsError: string | null;
+
   refreshStocks: (limit?: number) => Promise<void>;
   loadStockDetail: (code: string, name: string) => Promise<void>;
   loadKLine: (code: string, days?: number) => Promise<void>;
+  refreshRecommendations: () => Promise<void>;
   toggleFavorite: (code: string) => void;
   isFavorite: (code: string) => boolean;
   setFilterCriteria: (criteria: Partial<StockFilterCriteria>) => void;
@@ -67,6 +73,10 @@ export const useStockStore = create<StockState>((set, get) => ({
   selectedStock: null,
   selectedKLine: [],
 
+  recommendations: null,
+  recommendationsLoading: false,
+  recommendationsError: null,
+
   refreshStocks: async (limit = 40) => {
     set({ loading: true, error: null });
     try {
@@ -91,6 +101,31 @@ export const useStockStore = create<StockState>((set, get) => ({
       set({
         loading: false,
         error: err instanceof Error ? err.message : '请求失败',
+      });
+    }
+  },
+
+  refreshRecommendations: async () => {
+    set({ recommendationsLoading: true, recommendationsError: null });
+    try {
+      const { result, errors } = await fetchBoardRecommendations(10);
+      if (!result || (result.mainAndChiNext.length === 0 && result.star.length === 0 && result.bse.length === 0)) {
+        set({
+          recommendationsLoading: false,
+          recommendationsError: errors.length > 0
+            ? errors.join('; ')
+            : '未能获取到板块推荐，请检查网络或稍后重试',
+        });
+        return;
+      }
+      set({
+        recommendations: result,
+        recommendationsLoading: false,
+      });
+    } catch (err) {
+      set({
+        recommendationsLoading: false,
+        recommendationsError: err instanceof Error ? err.message : '请求失败',
       });
     }
   },

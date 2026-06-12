@@ -1,6 +1,56 @@
-import { fetchBatchQuotes, fetchKLine, EASTMONEY_NAME } from './eastmoney';
+import { fetchBatchQuotes, fetchKLine, fetchAllBoardCandidates, EASTMONEY_NAME } from './eastmoney';
 import { getStockPool } from './stockPool';
-import type { ApiResult, Stock, KLineData, StockFilterCriteria, Strategy } from '../types/stock';
+import type { ApiResult, Stock, KLineData, StockFilterCriteria, Strategy, BoardRecommendations } from '../types/stock';
+
+/**
+ * 计算下一交易日（周末自动顺延到周一）。
+ * 由于浏览器无法联网获取完整的节假日列表，这里仅处理周末。
+ */
+export function getNextTradingDay(): string {
+  const now = new Date();
+  // 判断当前时间是否在交易日盘中 (9:30-15:00)
+  const hours = now.getHours();
+  const minutes = now.getMinutes();
+  const isTradingHours = hours >= 9 && hours <= 14;
+  const dayOfWeek = now.getDay(); // 0=周日, 6=周六
+  const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+
+  let targetDate: Date;
+  if (isWeekend) {
+    // 如果当前是周末，顺延到下周一
+    const daysToMonday = dayOfWeek === 0 ? 1 : 2;
+    targetDate = new Date(now);
+    targetDate.setDate(now.getDate() + daysToMonday);
+  } else if (hours >= 15 || (hours === 14 && minutes > 0 && hours === 14) || hours >= 15) {
+    // 如果已经过了15:00，今天的交易日基本结束，下一个交易日为明天（如遇周末顺延）
+    targetDate = new Date(now);
+    targetDate.setDate(now.getDate() + 1);
+    // 如果明天是周末，继续顺延
+    while (targetDate.getDay() === 0 || targetDate.getDay() === 6) {
+      targetDate.setDate(targetDate.getDate() + 1);
+    }
+  } else if (isTradingHours) {
+    // 在盘中，今天的数据预测"下一个交易日"为明天
+    targetDate = new Date(now);
+    targetDate.setDate(now.getDate() + 1);
+    while (targetDate.getDay() === 0 || targetDate.getDay() === 6) {
+      targetDate.setDate(targetDate.getDate() + 1);
+    }
+  } else {
+    // 开盘前 (早于 9:30) - 预测今天的数据，但用户要求的是"下一交易日"，所以用明天
+    targetDate = new Date(now);
+    targetDate.setDate(now.getDate() + 1);
+    while (targetDate.getDay() === 0 || targetDate.getDay() === 6) {
+      targetDate.setDate(targetDate.getDate() + 1);
+    }
+  }
+
+  const y = targetDate.getFullYear();
+  const m = String(targetDate.getMonth() + 1).padStart(2, '0');
+  const d = String(targetDate.getDate()).padStart(2, '0');
+  const weekday = '日一二三四五六'[targetDate.getDay()];
+  return `${y}-${m}-${d} (周${weekday})`;
+}
 
 export interface ServiceResult {
   stocks: Stock[];
@@ -12,7 +62,6 @@ export async function fetchStockList(
   limit: number = 40
 ): Promise<ServiceResult> {
   const pool = getStockPool().slice(0, limit);
-  const errors: string[] = [];
 
   const eastResult = await fetchBatchQuotes(pool);
 
@@ -24,12 +73,10 @@ export async function fetchStockList(
     };
   }
 
-  errors.push(`${eastResult.error.provider}: ${eastResult.error.message}`);
-
   return {
     stocks: [],
     provider: EASTMONEY_NAME,
-    errors,
+    errors: [`${eastResult.error.provider}: ${eastResult.error.message}`],
   };
 }
 
@@ -101,7 +148,7 @@ export const DEFAULT_STRATEGIES: Strategy[] = [
     criteria: {
       rsiRange: [30, 70],
       macdSignal: 'neutral',
-      volumeRatioMin: 0.5,
+      volumeRatioMin: 1.0,
       mainNetFlowMin: 0,
       consecutiveDaysMin: 3,
       marketCapRange: [50000000000, Infinity],
@@ -170,4 +217,46 @@ export function calculateFundFlowData(klines: KLineData[]) {
     });
   }
   return result;
+}
+
+/**
+ * 核心选股逻辑：
+ * 1. 按板块并发获取候选；
+ * 2. 用综合评分（动量+量比+换手率-极端惩罚）排序；
+ * 3. 各板块各取前 10 只。
+ */
+export async function fetchBoardRecommendations(
+  topN: number = 10
+): Promise<{ result: BoardRecommendations | null; errors: string[] }> {
+  try {
+    const candidates = await fetchAllBoardCandidates();
+
+    const mainAndChiNext = candidates.mainAndChiNext.slice(0, topN);
+    const star = candidates.star.slice(0, topN);
+    const bse = candidates.bse.slice(0, topN);
+
+    const totalCount = mainAndChiNext.length + star.length + bse.length;
+    const errors: string[] = [];
+    if (totalCount === 0) {
+      errors.push('东方财富: 未获取到任何股票数据，可能是 API 响应异常或网络受限');
+    }
+    if (mainAndChiNext.length === 0) errors.push('主板+创业板: 无有效候选');
+    if (star.length === 0) errors.push('科创板: 无有效候选');
+    if (bse.length === 0) errors.push('北交所: 无有效候选');
+
+    return {
+      result: {
+        mainAndChiNext,
+        star,
+        bse,
+        nextTradingDay: getNextTradingDay(),
+        provider: EASTMONEY_NAME,
+        lastUpdate: Date.now(),
+      },
+      errors,
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : '请求失败';
+    return { result: null, errors: [`${EASTMONEY_NAME}: ${message}`] };
+  }
 }
