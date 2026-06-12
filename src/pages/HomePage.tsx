@@ -13,7 +13,8 @@ export function HomePage() {
       const mockStocks = generateMockStocks();
       setStocks(mockStocks);
     }
-  }, [stocks.length, setStocks]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const stats = useStockStore((state) => {
     const allStocks = state.stocks;
