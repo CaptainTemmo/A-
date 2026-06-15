@@ -69,7 +69,7 @@ async function generateRecommendations(topN = 10) {
 
   const results = await Promise.all(
     BOARD_CONFIGS.map(cfg =>
-      fetchBoardCandidates(cfg.id, cfg.name, 300) // 每板块取 300 只候选（3页×100条），再从中选 topN
+      fetchBoardCandidates(cfg.id, cfg.name) // 获取该板块全部股票，再从中选 topN
         .then(stocks => ({ ...cfg, stocks }))
         .catch(err => {
           console.error(`[推荐引擎] 获取 ${cfg.label} 失败:`, err.message);
