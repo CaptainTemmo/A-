@@ -25,41 +25,36 @@ function getDb() {
 function initSchema() {
   const d = getDb();
 
-  // 每日推荐记录
   d.exec(`
     CREATE TABLE IF NOT EXISTS daily_recommendations (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      trade_date TEXT NOT NULL,          -- 推荐对应的目标交易日, 格式 YYYY-MM-DD
+      trade_date TEXT NOT NULL,
+      strategy_type TEXT DEFAULT 'multi_factor',
+      strategy_name TEXT DEFAULT '多因子',
       created_at TEXT NOT NULL DEFAULT (datetime('now', '+8 hours')),
-      next_trading_day TEXT,            -- 下一个交易日
+      next_trading_day TEXT,
 
-      -- 主板+创业板推荐 (JSON 数组 of stock objects)
       main_chinext TEXT NOT NULL DEFAULT '[]',
-      -- 科创板推荐
       star TEXT NOT NULL DEFAULT '[]',
-      -- 北交所推荐
       bse TEXT NOT NULL DEFAULT '[]',
 
-      -- 元信息
       total_count INTEGER DEFAULT 0,
       provider TEXT DEFAULT '东方财富',
-      status TEXT DEFAULT 'pending'       -- pending | reviewed | archived
+      status TEXT DEFAULT 'pending'
     );
 
     CREATE INDEX IF NOT EXISTS idx_recommendations_date ON daily_recommendations(trade_date DESC);
+    CREATE INDEX IF NOT EXISTS idx_recommendations_strategy ON daily_recommendations(strategy_type);
   `);
 
-  // 每日复盘记录
   d.exec(`
     CREATE TABLE IF NOT EXISTS daily_reviews (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      trade_date TEXT NOT NULL UNIQUE,  -- 被复盘的交易日
+      trade_date TEXT NOT NULL UNIQUE,
       reviewed_at TEXT NOT NULL DEFAULT (datetime('now', '+8 hours')),
 
-      -- 复盘数据 (JSON)
       review_data TEXT NOT NULL DEFAULT '{}',
 
-      -- 关联的推荐 ID
       recommendation_id INTEGER,
       FOREIGN KEY (recommendation_id) REFERENCES daily_recommendations(id)
     );
@@ -67,7 +62,6 @@ function initSchema() {
     CREATE INDEX IF NOT EXISTS idx_reviews_date ON daily_reviews(trade_date DESC);
   `);
 
-  // 新闻缓存 (避免重复爬取)
   d.exec(`
     CREATE TABLE IF NOT EXISTS news_cache (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -87,56 +81,47 @@ function initSchema() {
   `);
 }
 
-/**
- * 保存某日的推荐
- */
-function saveRecommendations(tradeDate, nextTradingDay, mainChinext, star, bse) {
+function saveRecommendations(tradeDate, nextTradingDay, mainChinext, star, bse, strategyType = 'multi_factor', strategyName = '多因子') {
   const d = getDb();
-  const existing = d.prepare('SELECT id FROM daily_recommendations WHERE trade_date = ?').get(tradeDate);
 
   const totalCount = mainChinext.length + star.length + bse.length;
 
-  if (existing) {
-    const stmt = d.prepare(`
-      UPDATE daily_recommendations
-      SET next_trading_day = ?, main_chinext = ?, star = ?, bse = ?,
-          total_count = ?, status = 'pending', created_at = datetime('now', '+8 hours')
-      WHERE trade_date = ?
-    `);
-    stmt.run(
-      JSON.stringify(nextTradingDay),
-      JSON.stringify(mainChinext),
-      JSON.stringify(star),
-      JSON.stringify(bse),
-      totalCount,
-      tradeDate
-    );
-    return existing.id;
-  } else {
-    const stmt = d.prepare(`
-      INSERT INTO daily_recommendations (trade_date, next_trading_day, main_chinext, star, bse, total_count)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `);
-    const result = stmt.run(
-      tradeDate,
-      JSON.stringify(nextTradingDay),
-      JSON.stringify(mainChinext),
-      JSON.stringify(star),
-      JSON.stringify(bse),
-      totalCount
-    );
-    return result.lastInsertRowid;
-  }
+  const stmt = d.prepare(`
+    INSERT INTO daily_recommendations 
+    (trade_date, strategy_type, strategy_name, next_trading_day, main_chinext, star, bse, total_count)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  
+  const result = stmt.run(
+    tradeDate,
+    strategyType,
+    strategyName,
+    JSON.stringify(nextTradingDay),
+    JSON.stringify(mainChinext),
+    JSON.stringify(star),
+    JSON.stringify(bse),
+    totalCount
+  );
+  
+  return result.lastInsertRowid;
 }
 
-/**
- * 获取最新一条推荐
- */
-function getLatestRecommendation() {
+function getLatestRecommendation(strategyType = null) {
   const d = getDb();
-  const row = d.prepare(`
-    SELECT * FROM daily_recommendations ORDER BY created_at DESC LIMIT 1
-  `).get();
+  let row;
+  
+  if (strategyType) {
+    row = d.prepare(`
+      SELECT * FROM daily_recommendations 
+      WHERE strategy_type = ? 
+      ORDER BY created_at DESC LIMIT 1
+    `).get(strategyType);
+  } else {
+    row = d.prepare(`
+      SELECT * FROM daily_recommendations ORDER BY created_at DESC LIMIT 1
+    `).get();
+  }
+  
   if (!row) return null;
   return {
     ...row,
@@ -147,12 +132,35 @@ function getLatestRecommendation() {
   };
 }
 
-/**
- * 获取某日的推荐
- */
-function getRecommendationByDate(tradeDate) {
+function getLatestRecommendations() {
   const d = getDb();
-  const row = d.prepare('SELECT * FROM daily_recommendations WHERE trade_date = ?').get(tradeDate);
+  const rows = d.prepare(`
+    SELECT DISTINCT strategy_type, strategy_name 
+    FROM daily_recommendations 
+    ORDER BY strategy_type
+  `).all();
+  
+  const results = [];
+  for (const row of rows) {
+    const rec = getLatestRecommendation(row.strategy_type);
+    if (rec) {
+      results.push(rec);
+    }
+  }
+  
+  return results;
+}
+
+function getRecommendationByDate(tradeDate, strategyType = null) {
+  const d = getDb();
+  let row;
+  
+  if (strategyType) {
+    row = d.prepare('SELECT * FROM daily_recommendations WHERE trade_date = ? AND strategy_type = ?').get(tradeDate, strategyType);
+  } else {
+    row = d.prepare('SELECT * FROM daily_recommendations WHERE trade_date = ?').get(tradeDate);
+  }
+  
   if (!row) return null;
   return {
     ...row,
@@ -162,9 +170,6 @@ function getRecommendationByDate(tradeDate) {
   };
 }
 
-/**
- * 获取最新一条复盘
- */
 function getLatestReview() {
   const d = getDb();
   const row = d.prepare('SELECT * FROM daily_reviews ORDER BY reviewed_at DESC LIMIT 1').get();
@@ -175,9 +180,6 @@ function getLatestReview() {
   };
 }
 
-/**
- * 保存复盘
- */
 function saveReview(tradeDate, reviewData, recommendationId) {
   const d = getDb();
   const existing = d.prepare('SELECT id FROM daily_reviews WHERE trade_date = ?').get(tradeDate);
@@ -199,17 +201,11 @@ function saveReview(tradeDate, reviewData, recommendationId) {
   }
 }
 
-/**
- * 标记推荐为已复盘
- */
 function markRecommendationReviewed(tradeDate) {
   const d = getDb();
   d.prepare(`UPDATE daily_recommendations SET status = 'reviewed' WHERE trade_date = ?`).run(tradeDate);
 }
 
-/**
- * 保存新闻
- */
 function saveNews(stockCode, news) {
   if (!news || !news.length) return;
   const d = getDb();
@@ -222,9 +218,6 @@ function saveNews(stockCode, news) {
   }
 }
 
-/**
- * 获取某段时间内的新闻
- */
 function getNewsInRange(stockCodes, startDate, endDate) {
   if (!stockCodes || stockCodes.length === 0) return {};
   const placeholders = stockCodes.map(() => '?').join(',');
@@ -244,9 +237,6 @@ function getNewsInRange(stockCodes, startDate, endDate) {
   return grouped;
 }
 
-/**
- * 获取指定日期区间的推荐
- */
 function getRecommendationsInRange(startDate, endDate) {
   const d = getDb();
   const rows = d.prepare(`
@@ -266,6 +256,7 @@ module.exports = {
   getDb,
   saveRecommendations,
   getLatestRecommendation,
+  getLatestRecommendations,
   getRecommendationByDate,
   saveReview,
   getLatestReview,

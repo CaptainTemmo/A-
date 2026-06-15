@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { RefreshCw, AlertCircle, ArrowRight, Lock, Unlock, TrendingUp, ChevronDown, ChevronUp, BookOpen, Target } from 'lucide-react';
+import { RefreshCw, AlertCircle, ArrowRight, Lock, Unlock, TrendingUp, ChevronDown, ChevronUp, BookOpen, Target, BarChart3, Sparkles } from 'lucide-react';
 import { useStockStore } from '../store/stockStore';
 import { Button } from '../components/ui/Button';
 import type { Stock } from '../types/stock';
 import { BOARD_LABELS } from '../types/stock';
+import { STRATEGY_LABELS, STRATEGY_DESCRIPTIONS } from '../api/client';
+import type { StrategyType } from '../api/client';
 
 function formatCurrency(value: number): string {
   const absValue = Math.abs(value);
@@ -187,7 +189,6 @@ function ReviewPanel() {
 
           {review && review.review_data && (
             <>
-              {/* 汇总统计 */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
                 <div className="bg-white/5 rounded-xl p-3 text-center">
                   <p className="text-2xl font-bold text-white">{review.review_data.totalCount}</p>
@@ -207,8 +208,7 @@ function ReviewPanel() {
                 </div>
               </div>
 
-              {/* 逐条复盘 */}
-              <div className="space-y-3">
+              <div className="space-y-3 max-h-[50vh] overflow-y-auto">
                 {review.review_data.items?.map((item, idx) => {
                   const vc = verdictColors(item.verdict);
                   return (
@@ -257,18 +257,21 @@ function ReviewPanel() {
   );
 }
 
+const STRATEGIES: StrategyType[] = ['multi_factor', 'momentum', 'value', 'quality', 'growth', 'reverse', 'trend', 'fund_flow'];
+
 export function HomePage() {
   const navigate = useNavigate();
   const recommendations = useStockStore((state) => state.recommendations);
   const recommendationsLoading = useStockStore((state) => state.recommendationsLoading);
   const recommendationsError = useStockStore((state) => state.recommendationsError);
   const refreshRecommendations = useStockStore((state) => state.refreshRecommendations);
+  const currentStrategy = useStockStore((state) => state.currentStrategy);
+  const setCurrentStrategy = useStockStore((state) => state.setCurrentStrategy);
 
   useEffect(() => {
     if (!recommendations) {
       refreshRecommendations();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleClickStock = (stock: Stock) => {
@@ -296,13 +299,16 @@ export function HomePage() {
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-      <div className="flex flex-wrap items-start justify-between mb-6 gap-3">
-        <div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-white mb-2">
-            下一交易日 · 板块选股
-          </h1>
+      <div className="flex flex-wrap items-start justify-between mb-6 gap-4">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-3 mb-2">
+            <Sparkles className="w-6 h-6 text-accent" />
+            <h1 className="text-2xl sm:text-3xl font-bold text-white">
+              下一交易日 · 板块选股
+            </h1>
+          </div>
           <p className="text-gray-400 text-sm">
-            基于动量 + 量比 + 换手率综合评分，从全市场筛选潜力股
+            {STRATEGY_DESCRIPTIONS[currentStrategy]}
           </p>
           <div className="flex flex-wrap items-center gap-3 mt-2 text-xs text-gray-500">
             {recommendations && (
@@ -319,14 +325,57 @@ export function HomePage() {
             )}
           </div>
         </div>
-        <Button
-          variant="primary"
-          onClick={() => refreshRecommendations()}
-          disabled={recommendationsLoading}
-        >
-          <RefreshCw className={`w-4 h-4 mr-2 ${recommendationsLoading ? 'animate-spin' : ''}`} />
-          {recommendationsLoading ? '加载中...' : '刷新推荐'}
-        </Button>
+        
+        <div className="flex items-center gap-3">
+          <div className="relative">
+            <select
+              value={currentStrategy}
+              onChange={(e) => setCurrentStrategy(e.target.value as StrategyType)}
+              className="appearance-none bg-primary/60 backdrop-blur-sm border border-white/20 rounded-lg px-4 py-2.5 text-white text-sm font-medium pr-10 cursor-pointer hover:border-white/30 focus:outline-none focus:ring-2 focus:ring-accent/50"
+            >
+              {STRATEGIES.map((strategy) => (
+                <option key={strategy} value={strategy} className="bg-primary text-white">
+                  {STRATEGY_LABELS[strategy]}
+                </option>
+              ))}
+            </select>
+            <ChevronDown className="w-4 h-4 text-gray-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+          </div>
+          <Button
+            variant="primary"
+            onClick={() => refreshRecommendations()}
+            disabled={recommendationsLoading}
+          >
+            <RefreshCw className={`w-4 h-4 mr-2 ${recommendationsLoading ? 'animate-spin' : ''}`} />
+            {recommendationsLoading ? '加载中...' : '刷新推荐'}
+          </Button>
+        </div>
+      </div>
+
+      <div className="bg-primary/60 backdrop-blur-sm rounded-xl p-4 border border-white/10 mb-5">
+        <div className="flex flex-wrap items-center gap-4">
+          <div className="flex items-center gap-2">
+            <BarChart3 className="w-4 h-4 text-accent" />
+            <span className="text-white font-medium">当前策略:</span>
+            <span className="text-accent font-semibold">{STRATEGY_LABELS[currentStrategy]}</span>
+          </div>
+          <div className="h-4 w-px bg-white/20 hidden sm:block" />
+          <div className="flex flex-wrap gap-2">
+            {STRATEGIES.slice(0, 5).map((strategy) => (
+              <button
+                key={strategy}
+                onClick={() => setCurrentStrategy(strategy)}
+                className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${
+                  currentStrategy === strategy
+                    ? 'bg-accent text-white'
+                    : 'bg-white/5 text-gray-400 hover:bg-white/10'
+                }`}
+              >
+                {STRATEGY_LABELS[strategy]}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
 
       {recommendationsError && (
@@ -398,7 +447,6 @@ export function HomePage() {
             />
           </div>
 
-          {/* 复盘面板 */}
           <ReviewPanel />
 
           <div className="mt-5 text-center text-xs text-gray-500">

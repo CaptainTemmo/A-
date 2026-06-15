@@ -8,9 +8,9 @@ import {
   DEFAULT_STRATEGIES,
   fetchBoardRecommendations,
 } from '../api/stockService';
-import { getBackendRecommendations, getBackendReview } from '../api/client';
+import { getBackendRecommendations, getBackendReview, getAllStrategyRecommendations } from '../api/client';
 import type { KLineData } from '../types/stock';
-import type { BackendReview } from '../api/client';
+import type { BackendReview, BackendRecommendation, StrategyType } from '../api/client';
 
 interface StockState {
   stocks: Stock[];
@@ -30,7 +30,9 @@ interface StockState {
   recommendations: BoardRecommendations | null;
   recommendationsLoading: boolean;
   recommendationsError: string | null;
+  currentStrategy: StrategyType;
 
+  allRecommendations: BackendRecommendation[];
   review: BackendReview | null;
   reviewLoading: boolean;
   reviewError: string | null;
@@ -38,7 +40,8 @@ interface StockState {
   refreshStocks: (limit?: number) => Promise<void>;
   loadStockDetail: (code: string, name: string) => Promise<void>;
   loadKLine: (code: string, days?: number) => Promise<void>;
-  refreshRecommendations: () => Promise<void>;
+  refreshRecommendations: (strategyType?: StrategyType) => Promise<void>;
+  refreshAllRecommendations: () => Promise<void>;
   refreshReview: () => Promise<void>;
   toggleFavorite: (code: string) => void;
   isFavorite: (code: string) => boolean;
@@ -48,6 +51,7 @@ interface StockState {
   setSortOrder: (order: 'asc' | 'desc') => void;
   toggleFilter: () => void;
   applyStrategy: (strategy: Strategy) => void;
+  setCurrentStrategy: (strategyType: StrategyType) => void;
   getFilteredStocks: () => Stock[];
   getSortedStocks: () => Stock[];
   clearSelectedStock: () => void;
@@ -61,8 +65,12 @@ const defaultFilterCriteria: StockFilterCriteria = {
   consecutiveDaysMin: 0,
   marketCapRange: [0, Infinity],
   peRange: [0, Infinity],
+  pbRange: [0, Infinity],
   priceRange: [0, Infinity],
   changePercentRange: [-100, 100],
+  roeMin: 0,
+  grossMarginMin: 0,
+  revenueGrowthMin: 0,
 };
 
 export const useStockStore = create<StockState>((set, get) => ({
@@ -83,7 +91,9 @@ export const useStockStore = create<StockState>((set, get) => ({
   recommendations: null,
   recommendationsLoading: false,
   recommendationsError: null,
+  currentStrategy: 'multi_factor',
 
+  allRecommendations: [],
   review: null,
   reviewLoading: false,
   reviewError: null,
@@ -116,12 +126,12 @@ export const useStockStore = create<StockState>((set, get) => ({
     }
   },
 
-  refreshRecommendations: async () => {
-    set({ recommendationsLoading: true, recommendationsError: null });
+  refreshRecommendations: async (strategyType?: StrategyType) => {
+    const targetStrategy = strategyType || get().currentStrategy;
+    set({ recommendationsLoading: true, recommendationsError: null, currentStrategy: targetStrategy });
 
-    // Step 1: 优先从后端 API 获取
     try {
-      const backendData = await getBackendRecommendations();
+      const backendData = await getBackendRecommendations(targetStrategy);
       if (backendData && backendData.recommendation) {
         const rec = backendData.recommendation;
         const recommendations: BoardRecommendations = {
@@ -131,20 +141,18 @@ export const useStockStore = create<StockState>((set, get) => ({
           nextTradingDay: rec.next_trading_day,
           provider: '东方财富(后端)',
           lastUpdate: new Date(rec.created_at).getTime(),
+          strategyType: rec.strategy_type,
         };
         set({ recommendations, recommendationsLoading: false });
 
-        // 如果后端有复盘数据，也一并更新
         if (backendData.review) {
           set({ review: backendData.review });
         }
         return;
       }
     } catch {
-      // 后端不可用，继续用前端直连
     }
 
-    // Step 2: 降级到前端直连东方财富
     try {
       const { result, errors } = await fetchBoardRecommendations(10);
       if (!result || (result.mainAndChiNext.length === 0 && result.star.length === 0 && result.bse.length === 0)) {
@@ -162,6 +170,15 @@ export const useStockStore = create<StockState>((set, get) => ({
         recommendationsLoading: false,
         recommendationsError: err instanceof Error ? err.message : '请求失败',
       });
+    }
+  },
+
+  refreshAllRecommendations: async () => {
+    try {
+      const recs = await getAllStrategyRecommendations();
+      set({ allRecommendations: recs });
+    } catch {
+      set({ allRecommendations: [] });
     }
   },
 
@@ -254,6 +271,11 @@ export const useStockStore = create<StockState>((set, get) => ({
 
   applyStrategy: (strategy) =>
     set({ filterCriteria: strategy.criteria }),
+
+  setCurrentStrategy: (strategyType) => {
+    set({ currentStrategy: strategyType });
+    get().refreshRecommendations(strategyType);
+  },
 
   getFilteredStocks: () => {
     const { stocks, filterCriteria } = get();

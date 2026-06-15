@@ -4,16 +4,18 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db/database');
 const { taskGenerateRecommendations, taskReview } = require('../scheduler/tasks');
+const { STRATEGY_LABELS, STRATEGY_DESCRIPTIONS } = require('../services/recommender');
 
-// GET /api/recommendations/latest - 获取最新推荐
+// GET /api/recommendations/latest - 获取最新推荐（支持按策略筛选）
 router.get('/recommendations/latest', async (req, res) => {
   try {
-    const rec = db.getLatestRecommendation();
+    const strategyType = req.query.strategy || null;
+    const rec = db.getLatestRecommendation(strategyType);
+    
     if (!rec) {
       return res.json({ success: false, message: '暂无推荐数据' });
     }
 
-    // 获取最新的复盘（如果有）
     const latestReview = db.getLatestReview();
 
     res.json({
@@ -27,6 +29,8 @@ router.get('/recommendations/latest', async (req, res) => {
         nextTradingDay: rec.next_trading_day,
         totalCount: rec.total_count,
         status: rec.status,
+        strategyType: rec.strategy_type,
+        strategyName: rec.strategy_name,
       }
     });
   } catch (err) {
@@ -35,17 +39,45 @@ router.get('/recommendations/latest', async (req, res) => {
   }
 });
 
+// GET /api/recommendations/all - 获取所有策略的最新推荐
+router.get('/recommendations/all', async (req, res) => {
+  try {
+    const recs = db.getLatestRecommendations();
+    if (!recs || recs.length === 0) {
+      return res.json({ success: false, message: '暂无推荐数据' });
+    }
+    res.json({ success: true, data: recs });
+  } catch (err) {
+    console.error('[API] GET /recommendations/all 失败:', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 // GET /api/recommendations/history - 获取历史推荐
 router.get('/recommendations/history', (req, res) => {
   try {
     const limit = Math.min(parseInt(req.query.limit) || 10, 30);
+    const strategyType = req.query.strategy || null;
+    
     const d = db.getDb();
-    const rows = d.prepare(`
-      SELECT trade_date, next_trading_day, total_count, status, created_at
-      FROM daily_recommendations
-      ORDER BY created_at DESC
-      LIMIT ?
-    `).all(limit);
+    let rows;
+    
+    if (strategyType) {
+      rows = d.prepare(`
+        SELECT trade_date, next_trading_day, total_count, status, created_at, strategy_type, strategy_name
+        FROM daily_recommendations
+        WHERE strategy_type = ?
+        ORDER BY created_at DESC
+        LIMIT ?
+      `).all(strategyType, limit);
+    } else {
+      rows = d.prepare(`
+        SELECT trade_date, next_trading_day, total_count, status, created_at, strategy_type, strategy_name
+        FROM daily_recommendations
+        ORDER BY created_at DESC
+        LIMIT ?
+      `).all(limit);
+    }
 
     res.json({ success: true, data: rows });
   } catch (err) {
@@ -57,13 +89,29 @@ router.get('/recommendations/history', (req, res) => {
 // GET /api/recommendations/:date - 获取指定日期推荐
 router.get('/recommendations/:date', (req, res) => {
   try {
-    const rec = db.getRecommendationByDate(req.params.date);
+    const strategyType = req.query.strategy || null;
+    const rec = db.getRecommendationByDate(req.params.date, strategyType);
     if (!rec) {
       return res.status(404).json({ success: false, message: `未找到 ${req.params.date} 的推荐` });
     }
     res.json({ success: true, data: rec });
   } catch (err) {
     console.error('[API] GET /recommendations/:date 失败:', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// GET /api/strategies - 获取所有可用策略列表
+router.get('/strategies', (req, res) => {
+  try {
+    const strategies = Object.entries(STRATEGY_LABELS).map(([key, label]) => ({
+      type: key,
+      name: label,
+      description: STRATEGY_DESCRIPTIONS[key] || '',
+    }));
+    res.json({ success: true, data: strategies });
+  } catch (err) {
+    console.error('[API] GET /strategies 失败:', err);
     res.status(500).json({ success: false, message: err.message });
   }
 });
@@ -122,7 +170,7 @@ router.get('/health', (req, res) => {
     status: 'ok',
     uptime: process.uptime(),
     timestamp: new Date().toISOString(),
-    version: '1.0.0',
+    version: '1.1.0',
   });
 });
 
