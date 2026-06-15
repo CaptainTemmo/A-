@@ -39,17 +39,41 @@ function mapCode(code) {
 
 /**
  * 按板块获取候选股票 (clist/get)
- * fs: 东方财富板块筛选参数
+ * 支持分页，默认获取 3 页 × 100 条 = 300 只候选
  */
-async function fetchBoardCandidates(boardId, boardName, pageSize = 80) {
+async function fetchBoardCandidates(boardId, boardName, totalTarget = 300) {
   const fields = 'f2,f3,f4,f5,f6,f8,f10,f12,f14,f15,f16,f17,f18,f20,f57,f58,f60,f62,f100,f104,f105,f116,f117,f128,f140,f141,f162,f167,f168';
-  const url = `${BASE_URL}/api/qt/clist/get?pn=1&pz=${pageSize}&po=1&np=1&ut=bd1d9ddb04089700cf9c27f6f7426281&fltt=2&invt=2&fid=f3&fs=${encodeURIComponent(boardId)}&fields=${encodeURIComponent(fields)}`;
+  const pageSize = 100; // 单页最大有效条数
+  const pageCount = Math.ceil(totalTarget / pageSize); // 需要请求的页数
 
-  const data = await emFetch(url, 20000);
-  if (!data?.data?.diff || !Array.isArray(data.data.diff)) return [];
+  const allRaw = [];
+
+  for (let pn = 1; pn <= pageCount; pn++) {
+    const url = `${BASE_URL}/api/qt/clist/get?pn=${pn}&pz=${pageSize}&po=1&np=1&ut=bd1d9ddb04089700cf9c27f6f7426281&fltt=2&invt=2&fid=f3&fs=${encodeURIComponent(boardId)}&fields=${encodeURIComponent(fields)}`;
+    try {
+      const data = await emFetch(url, 20000);
+      if (data?.data?.diff && Array.isArray(data.data.diff)) {
+        allRaw.push(...data.data.diff);
+      }
+    } catch (err) {
+      console.warn(`[eastmoney] 分页 ${pn} 获取失败 (${boardName}):`, err.message);
+    }
+    // 每页间隔 200ms 避免过快请求
+    if (pn < pageCount) {
+      await new Promise(resolve => setTimeout(resolve, 200));
+    }
+  }
+
+  const seen = new Set();
+  const uniqueRaw = allRaw.filter(q => {
+    const code = String(q.f12 ?? '');
+    if (seen.has(code)) return false;
+    seen.add(code);
+    return true;
+  });
 
   const stocks = [];
-  for (const q of data.data.diff) {
+  for (const q of uniqueRaw) {
     const code = String(q.f12 ?? '');
     const name = String(q.f14 ?? '');
     const price = parseFloat(q.f2) || 0;
