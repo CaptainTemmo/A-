@@ -1,19 +1,39 @@
 import { useState } from 'react';
-import { Shield, Zap, DollarSign, Check, Sliders } from 'lucide-react';
+import { Shield, Zap, DollarSign, Check, Sliders, TrendingUp, Target, BarChart3, Sparkles, TrendingDown, LineChart, Activity, Gauge, CandlestickChart } from 'lucide-react';
 import { useStockStore } from '../store/stockStore';
 import { Button } from '../components/ui/Button';
-import type { Strategy } from '../types/stock';
+import type { Strategy, StrategyType } from '../types/stock';
 
-const strategyIcons = {
+const strategyIcons: Record<StrategyType, React.ComponentType<{ className?: string }>> = {
   conservative: Shield,
   aggressive: Zap,
   value: DollarSign,
+  momentum: TrendingUp,
+  quality: Shield,
+  growth: Sparkles,
+  reverse: TrendingDown,
+  trend: LineChart,
+  index_enhance: BarChart3,
+  fund_flow: Activity,
+  volatility: Gauge,
+  earnings: Target,
+  multi_factor: CandlestickChart,
 };
 
-const strategyColors = {
+const strategyColors: Record<StrategyType, string> = {
   conservative: 'from-emerald-500/20 to-emerald-600/10 border-emerald-500/30',
   aggressive: 'from-red-500/20 to-red-600/10 border-red-500/30',
   value: 'from-blue-500/20 to-blue-600/10 border-blue-500/30',
+  momentum: 'from-purple-500/20 to-purple-600/10 border-purple-500/30',
+  quality: 'from-teal-500/20 to-teal-600/10 border-teal-500/30',
+  growth: 'from-pink-500/20 to-pink-600/10 border-pink-500/30',
+  reverse: 'from-amber-500/20 to-amber-600/10 border-amber-500/30',
+  trend: 'from-indigo-500/20 to-indigo-600/10 border-indigo-500/30',
+  index_enhance: 'from-sky-500/20 to-sky-600/10 border-sky-500/30',
+  fund_flow: 'from-cyan-500/20 to-cyan-600/10 border-cyan-500/30',
+  volatility: 'from-fuchsia-500/20 to-fuchsia-600/10 border-fuchsia-500/30',
+  earnings: 'from-yellow-500/20 to-yellow-600/10 border-yellow-500/30',
+  multi_factor: 'from-accent/20 to-accent/10 border-accent/30',
 };
 
 export function StrategyPage() {

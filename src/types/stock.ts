@@ -1,8 +1,8 @@
 export type BoardCategory =
-  | 'main' // 主板 (沪市主板 + 深市主板)
-  | 'chinext' // 创业板 (300xxx)
-  | 'star' // 科创板 (688xxx)
-  | 'bse'; // 北交所 (83xxx, 87xxx, 88xxx, 92xxx)
+  | 'main'
+  | 'chinext'
+  | 'star'
+  | 'bse';
 
 export const BOARD_LABELS: Record<BoardCategory, string> = {
   main: '主板',
@@ -19,17 +19,19 @@ export const BOARD_DESCRIPTIONS: Record<BoardCategory, string> = {
 };
 
 export type StrategyType =
-  | 'momentum' // 动量策略 - 强势股延续
-  | 'value' // 价值投资 - 低估值
-  | 'quality' // 质量因子 - ROE/毛利率
-  | 'growth' // 成长策略 - 营收增长
-  | 'reverse' // 反转策略 - 超跌反弹
-  | 'trend' // 趋势跟踪 - 均线突破
-  | 'index_enhance' // 指数增强 - 对标指数
-  | 'fund_flow' // 资金流向 - 主力资金
-  | 'volatility' // 波动率策略 - 布林带突破
-  | 'earnings' // 业绩超预期 - 财报数据
-  | 'multi_factor'; // 多因子综合
+  | 'momentum'
+  | 'value'
+  | 'quality'
+  | 'growth'
+  | 'reverse'
+  | 'trend'
+  | 'index_enhance'
+  | 'fund_flow'
+  | 'volatility'
+  | 'earnings'
+  | 'multi_factor'
+  | 'conservative'
+  | 'aggressive';
 
 export const STRATEGY_LABELS: Record<StrategyType, string> = {
   momentum: '动量策略',
@@ -43,6 +45,8 @@ export const STRATEGY_LABELS: Record<StrategyType, string> = {
   volatility: '波动率',
   earnings: '业绩超预期',
   multi_factor: '多因子',
+  conservative: '稳健型',
+  aggressive: '激进型',
 };
 
 export const STRATEGY_DESCRIPTIONS: Record<StrategyType, string> = {
@@ -57,6 +61,8 @@ export const STRATEGY_DESCRIPTIONS: Record<StrategyType, string> = {
   volatility: '利用布林带等波动率指标选股',
   earnings: '基于财报超预期的事件驱动策略',
   multi_factor: '综合多种因子的复合策略',
+  conservative: '保守稳健的选股策略，关注低估值和低风险',
+  aggressive: '追求高成长和高收益的激进型策略',
 };
 
 export interface Stock {
@@ -71,38 +77,38 @@ export interface Stock {
   volumeRatio: number;
   marketCap: number;
   pe: number;
-  pe_ttm: number;
-  pb: number;
-  ps: number;
-  pcfo: number;
-  dividendYield: number;
+  pe_ttm?: number;
+  pb?: number;
+  ps?: number;
+  pcfo?: number;
+  dividendYield?: number;
   rsi: number;
   macd: { dif: number; dea: number; histogram: number; };
   kdj: { k: number; d: number; j: number; };
   boll: { upper: number; middle: number; lower: number; };
   mainNetFlow: number;
-  fiveDayNetFlow: number;
-  tenDayNetFlow: number;
+  fiveDayNetFlow?: number;
+  tenDayNetFlow?: number;
   selectionReasons: string[];
   lastUpdate: number;
   board?: BoardCategory;
   score?: number;
-  strategyScore?: Record<StrategyType, number>;
+  strategyScore?: Partial<Record<StrategyType, number>>;
 
-  roe: number;
-  grossMargin: number;
-  netProfitMargin: number;
-  revenueGrowth: number;
-  profitGrowth: number;
-  cashFlow: number;
-  debtRatio: number;
+  roe?: number;
+  grossMargin?: number;
+  netProfitMargin?: number;
+  revenueGrowth?: number;
+  profitGrowth?: number;
+  cashFlow?: number;
+  debtRatio?: number;
 
-  ma5: number;
-  ma10: number;
-  ma20: number;
-  ma60: number;
-  volatility: number;
-  atr: number;
+  ma5?: number;
+  ma10?: number;
+  ma20?: number;
+  ma60?: number;
+  volatility?: number;
+  atr?: number;
 }
 
 export interface StockFilterCriteria {
@@ -113,12 +119,12 @@ export interface StockFilterCriteria {
   consecutiveDaysMin: number;
   marketCapRange: [number, number];
   peRange: [number, number];
-  pbRange: [number, number];
+  pbRange?: [number, number];
   priceRange: [number, number];
   changePercentRange: [number, number];
-  roeMin: number;
-  grossMarginMin: number;
-  revenueGrowthMin: number;
+  roeMin?: number;
+  grossMarginMin?: number;
+  revenueGrowthMin?: number;
 }
 
 export interface UserFavorite {
@@ -137,8 +143,8 @@ export interface Strategy {
   name: string;
   type: StrategyType;
   criteria: StockFilterCriteria;
-  weight: number;
-  description: string;
+  weight?: number;
+  description?: string;
 }
 
 export interface KLineData {
@@ -193,16 +199,7 @@ export interface BoardRecommendations {
   nextTradingDay: string;
   provider: string;
   lastUpdate: number;
-  strategyType: StrategyType;
-}
-
-export interface StrategyRecommendations {
-  strategyType: StrategyType;
-  strategyName: string;
-  recommendations: Stock[];
-  nextTradingDay: string;
-  provider: string;
-  lastUpdate: number;
+  strategyType?: StrategyType;
 }
 
 export function detectBoardByCode(code: string): BoardCategory {
