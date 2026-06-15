@@ -8,7 +8,9 @@ import {
   DEFAULT_STRATEGIES,
   fetchBoardRecommendations,
 } from '../api/stockService';
+import { getBackendRecommendations, getBackendReview } from '../api/client';
 import type { KLineData } from '../types/stock';
+import type { BackendReview } from '../api/client';
 
 interface StockState {
   stocks: Stock[];
@@ -29,10 +31,15 @@ interface StockState {
   recommendationsLoading: boolean;
   recommendationsError: string | null;
 
+  review: BackendReview | null;
+  reviewLoading: boolean;
+  reviewError: string | null;
+
   refreshStocks: (limit?: number) => Promise<void>;
   loadStockDetail: (code: string, name: string) => Promise<void>;
   loadKLine: (code: string, days?: number) => Promise<void>;
   refreshRecommendations: () => Promise<void>;
+  refreshReview: () => Promise<void>;
   toggleFavorite: (code: string) => void;
   isFavorite: (code: string) => boolean;
   setFilterCriteria: (criteria: Partial<StockFilterCriteria>) => void;
@@ -77,6 +84,10 @@ export const useStockStore = create<StockState>((set, get) => ({
   recommendationsLoading: false,
   recommendationsError: null,
 
+  review: null,
+  reviewLoading: false,
+  reviewError: null,
+
   refreshStocks: async (limit = 40) => {
     set({ loading: true, error: null });
     try {
@@ -107,6 +118,33 @@ export const useStockStore = create<StockState>((set, get) => ({
 
   refreshRecommendations: async () => {
     set({ recommendationsLoading: true, recommendationsError: null });
+
+    // Step 1: 优先从后端 API 获取
+    try {
+      const backendData = await getBackendRecommendations();
+      if (backendData && backendData.recommendation) {
+        const rec = backendData.recommendation;
+        const recommendations: BoardRecommendations = {
+          mainAndChiNext: rec.main_chinext as unknown as Stock[],
+          star: rec.star as unknown as Stock[],
+          bse: rec.bse as unknown as Stock[],
+          nextTradingDay: rec.next_trading_day,
+          provider: '东方财富(后端)',
+          lastUpdate: new Date(rec.created_at).getTime(),
+        };
+        set({ recommendations, recommendationsLoading: false });
+
+        // 如果后端有复盘数据，也一并更新
+        if (backendData.review) {
+          set({ review: backendData.review });
+        }
+        return;
+      }
+    } catch {
+      // 后端不可用，继续用前端直连
+    }
+
+    // Step 2: 降级到前端直连东方财富
     try {
       const { result, errors } = await fetchBoardRecommendations(10);
       if (!result || (result.mainAndChiNext.length === 0 && result.star.length === 0 && result.bse.length === 0)) {
@@ -118,14 +156,28 @@ export const useStockStore = create<StockState>((set, get) => ({
         });
         return;
       }
-      set({
-        recommendations: result,
-        recommendationsLoading: false,
-      });
+      set({ recommendations: result, recommendationsLoading: false });
     } catch (err) {
       set({
         recommendationsLoading: false,
         recommendationsError: err instanceof Error ? err.message : '请求失败',
+      });
+    }
+  },
+
+  refreshReview: async () => {
+    set({ reviewLoading: true, reviewError: null });
+    try {
+      const backendReview = await getBackendReview();
+      if (backendReview) {
+        set({ review: backendReview, reviewLoading: false });
+      } else {
+        set({ reviewLoading: false, reviewError: '暂无复盘数据（需部署后端服务后自动生成）' });
+      }
+    } catch (err) {
+      set({
+        reviewLoading: false,
+        reviewError: err instanceof Error ? err.message : '获取复盘失败',
       });
     }
   },
